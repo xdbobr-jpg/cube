@@ -1,11 +1,11 @@
 // --- СЕРВЕРНЫЙ КОД NODE.JS (РАБОТАЕТ НА RENDER) ---
 // Файл: game-server/server.js
-// Добавлена функция отдачи index.html по HTTP-запросу.
+// Добавлена функция отдачи index.html по HTTP-запросу и обработка ЧАТА.
 
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const path = require('path'); // Добавляем модуль для работы с путями
+const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
@@ -18,12 +18,9 @@ const io = new Server(server, {
   }
 });
 
-// === НОВЫЙ БЛОК: ОБРАБОТКА HTTP ЗАПРОСОВ ===
-// Мы настроили Render с Root Directory = game-server. 
-// Поэтому, чтобы найти index.html (который находится в корне репозитория),
-// нам нужно подняться на одну директорию (..) от текущей (__dirname).
+// === ОБРАБОТКА HTTP ЗАПРОСОВ (ОТДАЧА КЛИЕНТА) ===
 app.get('/', (req, res) => {
-    // Отправляем файл index.html, который лежит уровнем выше
+    // Отправляем файл index.html, который лежит уровнем выше от game-server
     res.sendFile(path.join(__dirname, '..', 'index.html'));
 });
 
@@ -36,27 +33,22 @@ io.on('connection', (socket) => {
 
   // 1. Обработка регистрации (никнейма)
   socket.on('register', (nickname) => {
-    // Проверяем, что игрок еще не зарегистрирован
     if (!players[socket.id]) {
       players[socket.id] = {
         id: socket.id,
-        nickname: nickname.substring(0, 10), // Ограничение ника
-        x: Math.floor(Math.random() * 700) + 50, // Случайная стартовая позиция X
-        y: Math.floor(Math.random() * 500) + 50, // Случайная стартовая позиция Y
-        color: getRandomColor() // Случайный цвет квадрата
+        nickname: nickname.substring(0, 10),
+        x: Math.floor(Math.random() * 700) + 50,
+        y: Math.floor(Math.random() * 500) + 50,
+        color: getRandomColor()
       };
       
-      // Отправляем текущему игроку состояние всех остальных
       socket.emit('currentPlayers', players);
-      
-      // Сообщаем всем остальным, что появился новый игрок
       socket.broadcast.emit('newPlayer', players[socket.id]);
-      
       console.log(`[SERVER] Игрок зарегистрирован: ${nickname}`);
     }
   });
 
-  // 2. Обработка движения (WASD)
+  // 2. Обработка движения (WASD/ЦФЫВ)
   socket.on('move', (direction) => {
     const player = players[socket.id];
     if (player) {
@@ -68,7 +60,7 @@ io.on('connection', (socket) => {
         case 'd': player.x += PLAYER_SPEED; break;
       }
 
-      // Ограничение движения в пределах поля (800x600, игрок 30x30)
+      // Ограничение движения в пределах поля
       player.x = Math.max(0, Math.min(800 - 30, player.x));
       player.y = Math.max(0, Math.min(600 - 30, player.y));
       
@@ -80,12 +72,24 @@ io.on('connection', (socket) => {
       });
     }
   });
+  
+  // 3. ОБРАБОТКА ЧАТА: Принимаем сообщение и рассылаем всем (включая отправителя)
+  socket.on('chatMessage', (message) => {
+      const player = players[socket.id];
+      if (player) {
+          const chatData = {
+              nickname: player.nickname,
+              text: message.substring(0, 150), // Ограничение длины сообщения
+              color: player.color
+          };
+          io.emit('chatMessage', chatData); // Рассылаем всем
+      }
+  });
 
-  // 3. Обработка отключения
+  // 4. Обработка отключения
   socket.on('disconnect', () => {
     console.log(`[SERVER] Пользователь отключен: ${socket.id}`);
     delete players[socket.id];
-    // Сообщаем всем, что этот игрок ушел
     io.emit('playerDisconnected', socket.id);
   });
 });
@@ -98,7 +102,6 @@ function getRandomColor() {
   return color;
 }
 
-// Запуск сервера на порту, который предоставит Render (process.env.PORT)
 const PORT = process.env.PORT || 3000; 
 server.listen(PORT, () => {
   console.log(`[SERVER] Сервер запущен на порту: ${PORT}`);

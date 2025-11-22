@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Мультиплеер-Тест (WASD)</title>
+    <title>Мультиплеер-Тест (WASD/ЦФЫВ + Чат)</title>
     <!-- Подключаем Socket.IO клиентскую библиотеку -->
     <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
     <style>
@@ -28,6 +28,8 @@
             background-color: #2c2c2c;
             border-radius: 12px;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            /* Минимальная ширина для размещения панели */
+            min-width: 1000px; 
         }
 
         #gameCanvas {
@@ -36,14 +38,30 @@
             border-radius: 8px;
         }
 
-        .player-list-panel {
-            width: 150px;
+        .sidebar {
+            width: 250px; /* Увеличили ширину для чата */
+            display: flex;
+            flex-direction: column;
             background-color: #3c3c3c;
             padding: 15px;
             border-radius: 8px;
+            gap: 15px;
+        }
+        
+        /* Стили для разделителя */
+        .separator {
+            border-top: 2px solid #555;
+            margin: 5px 0;
         }
 
-        .player-list-panel h2 {
+        /* Блок списка игроков */
+        .player-list-block {
+            flex-grow: 0; /* Не растягивается */
+            max-height: 250px;
+            overflow-y: auto;
+        }
+
+        .player-list-block h2 {
             margin-top: 0;
             color: #4CAF50; 
             border-bottom: 1px solid #555;
@@ -62,6 +80,54 @@
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+        }
+        
+        /* Блок чата */
+        .chat-container {
+            flex-grow: 1; /* Растягивается, занимая оставшееся место */
+            display: flex;
+            flex-direction: column;
+            min-height: 200px;
+        }
+
+        #chatLog {
+            flex-grow: 1;
+            background-color: #222;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            overflow-y: auto;
+            font-size: 0.85em;
+            line-height: 1.4;
+        }
+        
+        .chat-input-group {
+            display: flex;
+        }
+
+        #chatInput {
+            flex-grow: 1;
+            padding: 8px;
+            border: 1px solid #555;
+            border-radius: 5px 0 0 5px;
+            background-color: #222;
+            color: white;
+            font-size: 1em;
+            outline: none;
+        }
+        
+        #sendButton {
+            background-color: #555;
+            color: white;
+            padding: 8px 15px;
+            border: none;
+            border-radius: 0 5px 5px 0;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        
+        #sendButton:hover {
+            background-color: #666;
         }
 
         /* Стили для модального окна регистрации */
@@ -131,87 +197,103 @@
     </div>
 
     <div class="game-container">
-        <!-- Панель списка игроков -->
-        <div class="player-list-panel">
-            <h2>Игроки</h2>
-            <ul class="player-list" id="playerList">
-                <!-- Список игроков -->
-            </ul>
-        </div>
         
         <!-- Игровой холст -->
         <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+        <!-- Панель со списком игроков и чатом -->
+        <div class="sidebar">
+            
+            <!-- Блок списка игроков -->
+            <div class="player-list-block">
+                <h2>Игроки</h2>
+                <ul class="player-list" id="playerList">
+                    <!-- Список игроков -->
+                </ul>
+            </div>
+            
+            <!-- Разделитель -->
+            <div class="separator"></div>
+
+            <!-- Блок чата -->
+            <div class="chat-container">
+                <h2>Чат</h2>
+                <div id="chatLog"></div>
+                <div class="chat-input-group">
+                    <input type="text" id="chatInput" placeholder="Сообщение..." maxlength="150">
+                    <button id="sendButton">Отправить</button>
+                </div>
+            </div>
+        </div>
     </div>
 
 <script>
-    // === 1. КОНФИГУРАЦИЯ СЕРВЕРА ===
-    // Поскольку index.html теперь отдается тем же сервером,
-    // Socket.IO может подключаться без указания полного URL.
-    
+    // === 1. КОНФИГУРАЦИЯ И ЭЛЕМЕНТЫ ===
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     const playerListElement = document.getElementById('playerList');
     const loginOverlay = document.getElementById('loginOverlay');
     const loginButton = document.getElementById('loginButton');
     const nicknameInput = document.getElementById('nicknameInput');
+    const chatInput = document.getElementById('chatInput');
+    const sendButton = document.getElementById('sendButton');
+    const chatLog = document.getElementById('chatLog');
     
     let socket;
     const players = {}; 
     let myId = null;
     const keysPressed = {}; 
-    const movementKeys = ['w', 'a', 's', 'd'];
+    
+    // Карта для сопоставления английских и русских клавиш
+    const keyMap = {
+        'w': 'w', 'ц': 'w', // Вперед
+        's': 's', 'ы': 's', // Назад
+        'a': 'a', 'ф': 'a', // Влево
+        'd': 'd', 'в': 'd'  // Вправо
+    };
+    const movementKeys = Object.keys(keyMap); // Все допустимые клавиши
 
-    // === 2. ПРОВЕРКА МОБИЛЬНОГО УСТРОЙСТВА И RICKROLL ===
-    // Если обнаружено мобильное устройство, перенаправляем.
+    // === 2. ПРОВЕРКА МОБИЛЬНОГО УСТРОЙСТВА ===
     if (/Mobi|Android/i.test(navigator.userAgent)) {
-        window.location.href = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+        window.location.href = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"; // Защита от мобильных
     }
 
     // === 3. ЛОГИКА РЕГИСТРАЦИИ (ВХОДА) ===
+    loginButton.addEventListener('click', attemptLogin);
+    nicknameInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') attemptLogin();
+    });
 
-    loginButton.addEventListener('click', () => {
+    function attemptLogin() {
         const nickname = nicknameInput.value.trim();
         if (nickname.length > 0) {
-            // Подключаемся к серверу, io() по умолчанию использует текущий домен
-            socket = io();
-            // Отправляем ник для регистрации
+            socket = io(); // Подключаемся к текущему домену
             socket.emit('register', nickname);
             
             loginOverlay.style.display = 'none';
             setupSocketListeners();
             gameLoop();
         } else {
-            // Визуальное предупреждение 
             console.error('Пожалуйста, введите ник.');
             nicknameInput.style.border = '2px solid red';
             setTimeout(() => { nicknameInput.style.border = '1px solid #555'; }, 500);
         }
-    });
-
-    nicknameInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            loginButton.click();
-        }
-    });
+    }
 
     // === 4. ОБРАБОТКА SOCKET.IO СОБЫТИЙ ===
-
     function setupSocketListeners() {
         socket.on('connect', () => {
             myId = socket.id;
         });
 
-        // Получаем начальное состояние всех игроков
         socket.on('currentPlayers', (serverPlayers) => {
             Object.assign(players, serverPlayers);
         });
 
-        // Новый игрок подключился
         socket.on('newPlayer', (playerData) => {
             players[playerData.id] = playerData;
         });
 
-        // Обновление позиции игрока
         socket.on('playerMoved', (data) => {
             if (players[data.id]) {
                 players[data.id].x = data.x;
@@ -219,14 +301,45 @@
             }
         });
 
-        // Игрок отключился
         socket.on('playerDisconnected', (playerId) => {
             delete players[playerId];
         });
+        
+        // НОВОЕ: Прием чат-сообщения
+        socket.on('chatMessage', (data) => {
+            displayChatMessage(data.nickname, data.text, data.color);
+        });
     }
 
-    // === 5. ИГРОВОЙ ЦИКЛ И РИСОВАНИЕ ===
+    // === 5. ЛОГИКА ЧАТА ===
+    sendButton.addEventListener('click', sendChatMessage);
+    chatInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            sendChatMessage();
+        }
+    });
+    
+    function sendChatMessage() {
+        if (!socket || !socket.connected) return;
+        
+        const message = chatInput.value.trim();
+        if (message.length > 0) {
+            socket.emit('chatMessage', message);
+            chatInput.value = ''; // Очистка поля ввода
+            chatInput.focus();
+        }
+    }
+    
+    function displayChatMessage(nickname, text, color) {
+        const messageElement = document.createElement('div');
+        messageElement.innerHTML = `<span style="color:${color}; font-weight:bold;">${nickname}:</span> ${text}`;
+        chatLog.appendChild(messageElement);
+        // Прокрутка вниз для отображения нового сообщения
+        chatLog.scrollTop = chatLog.scrollHeight;
+    }
 
+
+    // === 6. ИГРОВОЙ ЦИКЛ И РИСОВАНИЕ ===
     function draw() {
         // Очистка холста
         ctx.fillStyle = '#333';
@@ -265,35 +378,42 @@
         }
     }
 
-    // Отправка на сервер нажатых клавиш
+    // Отправка на сервер нажатых клавиш (оптимизация: отправляем только команды, сервер рассчитывает позицию)
     function handleMovement() {
-        for (const key of movementKeys) {
+        if (!socket || !socket.connected) return;
+
+        for (const key in keysPressed) {
             if (keysPressed[key]) {
-                socket.emit('move', key); 
+                 // keyMap[key] преобразует русскую клавишу в английскую команду ('ц' -> 'w')
+                socket.emit('move', keyMap[key]); 
             }
         }
     }
     
     function gameLoop() {
-        if (socket && socket.connected) {
-            handleMovement();
-        }
+        handleMovement(); // Отправляем команды движения
         draw();
         requestAnimationFrame(gameLoop);
     }
     
-    // === 6. ОБРАБОТКА КЛАВИАТУРЫ ===
+    // === 7. ОБРАБОТКА КЛАВИАТУРЫ ===
 
     document.addEventListener('keydown', (event) => {
         const key = event.key.toLowerCase();
-        if (movementKeys.includes(key) && !keysPressed[key]) {
+        
+        // Игнорируем ввод, если активен чат
+        if (document.activeElement === chatInput) return;
+
+        // Проверяем, есть ли клавиша в нашей карте движения
+        if (keyMap.hasOwnProperty(key) && !keysPressed[key]) {
             keysPressed[key] = true;
+            event.preventDefault(); // Предотвращаем прокрутку страницы клавишами WASD
         }
     });
 
     document.addEventListener('keyup', (event) => {
         const key = event.key.toLowerCase();
-        if (movementKeys.includes(key)) {
+        if (keyMap.hasOwnProperty(key)) {
             keysPressed[key] = false;
         }
     });
