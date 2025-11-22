@@ -145,11 +145,9 @@
 
 <script>
     // === 1. КОНФИГУРАЦИЯ СЕРВЕРА ===
-
-    // !!! ВАЖНО: ЗАМЕНИТЕ ЭТУ СТРОКУ НА URL ВАШЕГО WEB SERVICE С RENDER !!!
-    const RENDER_SERVER_URL = 'http://localhost:3000'; 
-    // Пример: const RENDER_SERVER_URL = 'https://my-game-server-abcd.onrender.com';
-
+    // Поскольку index.html теперь отдается тем же сервером,
+    // Socket.IO может подключаться без указания полного URL.
+    
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     const playerListElement = document.getElementById('playerList');
@@ -174,8 +172,8 @@
     loginButton.addEventListener('click', () => {
         const nickname = nicknameInput.value.trim();
         if (nickname.length > 0) {
-            // Подключаемся к серверу
-            socket = io(RENDER_SERVER_URL);
+            // Подключаемся к серверу, io() по умолчанию использует текущий домен
+            socket = io();
             // Отправляем ник для регистрации
             socket.emit('register', nickname);
             
@@ -183,7 +181,7 @@
             setupSocketListeners();
             gameLoop();
         } else {
-            // Визуальное предупреждение (вместо alert)
+            // Визуальное предупреждение 
             console.error('Пожалуйста, введите ник.');
             nicknameInput.style.border = '2px solid red';
             setTimeout(() => { nicknameInput.style.border = '1px solid #555'; }, 500);
